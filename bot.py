@@ -1,16 +1,17 @@
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
 from io import BytesIO
+from moviepy.editor import ImageClip
 
-# Telegram Bot Token
-TOKEN = "8386912250:AAHWppIHrXHpG8lQuZ7l3xkO4AjMUkIkhZg"
+# =========================
+# EDIT ONLY THESE TWO LINES
+TOKEN = "8386912250:AAHWppIHrXHpG8lQuZ7l3xkO4AjMUkIkhZg"       # Telegram Bot Token
+HF_TOKEN = "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" # Hugging Face Token
+# =========================
 
-# Hugging Face API Token
-HF_TOKEN = "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"
-
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Hello! Send me a prompt, and I will generate an AI image for you.")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Hello! Send me a prompt, and I will generate an AI image and convert it to a 5-second video.")
 
 def generate_image(prompt):
     url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
@@ -24,25 +25,32 @@ def generate_image(prompt):
     else:
         return None
 
-def handle_message(update: Update, context: CallbackContext):
+def image_to_video(image_data, duration=5):
+    # ImageClip creates a video from an image
+    clip = ImageClip(image_data).set_duration(duration)
+    video_bytes = BytesIO()
+    clip.write_videofile("temp.mp4", fps=24, codec="libx264", audio=False, verbose=False, logger=None)
+    with open("temp.mp4", "rb") as f:
+        video_bytes.write(f.read())
+    video_bytes.seek(0)
+    return video_bytes
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text
-    update.message.reply_text("Generating image... ⏳")
+    await update.message.reply_text("Generating image... ⏳")
     
     image_data = generate_image(prompt)
     if image_data:
-        update.message.reply_photo(photo=image_data)
+        await update.message.reply_text("Converting image to 5-second video... 🎬")
+        video_data = image_to_video(image_data)
+        await update.message.reply_video(video=video_data)
     else:
-        update.message.reply_text("Failed to generate image. Try again!")
-
-def main():
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    updater.start_polling()
-    updater.idle()
+        await update.message.reply_text("Failed to generate image. Try again!")
 
 if __name__ == "__main__":
-    main()
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+
+    print("Bot is running...")
+    app.run_polling()
